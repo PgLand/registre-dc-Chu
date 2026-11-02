@@ -1,0 +1,26 @@
+{
+  "id": "./index.html",
+  "name": "Registre des Décès CHU-P",
+  "short_name": "Registre CHU-P",
+  "description": "Registre local de suivi et d'audit des décès au CHU-P.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#134e4a",
+  "icons": [
+    {
+      "src": "./assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

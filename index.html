@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full bg-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Suivi des Décès CHU-P (10 Étapes)</title>
+    <meta name="theme-color" content="#134e4a">
+    <meta name="description" content="Registre local de suivi et d'audit des décès au CHU-P.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Registre CHU-P">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./assets/icons/icon-180.png">
+    <!-- Tailwind CSS local -->
+    <script src="./assets/js/tailwind.min.js"></script>
+    <!-- FontAwesome Icons local -->
+    <link rel="stylesheet" href="./assets/css/fontawesome.min.css">
+    <!-- SheetJS (XLSX Export) local -->
+    <script src="./assets/js/xlsx.full.min.js"></script>
+    <!-- WHO ICD-10 French 2008 dataset (offline) -->
+    <script src="./assets/data/cim10-fr-2008.js"></script>
+    <style>
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; }
+        html { -webkit-text-size-adjust: 100%; }
+        body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        button, input, select, textarea { touch-action: manipulation; }
+        @media (max-width: 640px) {
+            header > div { flex-wrap: wrap; gap: .75rem; }
+            header > div > div:first-child { min-width: 0; }
+            header > div > div:first-child h1 { font-size: 1rem; }
+            header > div > div:first-child p { font-size: .7rem; }
+            header > div > div:last-child { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .375rem; }
+            header > div > div:last-child button { justify-content: center; min-height: 2.75rem; padding-left: .4rem; padding-right: .4rem; }
+            main { padding: .75rem !important; }
+            #section-form form { padding: .875rem !important; }
+            #section-form form > div:first-child { flex-wrap: wrap; gap: .5rem; }
+            #storage-status { width: 100%; }
+            #section-form label, #section-list input { line-height: 1.4; }
+            #deces-form input, #deces-form select, #deces-form textarea { min-height: 2.75rem; font-size: 1rem; }
+            #deces-form textarea { min-height: 5rem; }
+            #tab-btn-form, #tab-btn-list { padding-left: .65rem; padding-right: .65rem; }
+            #tab-btn-form span, #tab-btn-list span:not(#record-count-badge) { font-size: .75rem; }
+            #gestes-list button { min-height: 2.5rem; }
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col text-slate-800">
+
+    <!-- Header / Navbar -->
+    <header class="bg-teal-900 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-hospital-user text-teal-300 text-2xl"></i>
+                <div>
+                    <h1 class="font-bold text-base md:text-lg leading-tight">Registre des Décès (CHU-P)</h1>
+                    <p class="text-xs text-teal-200">Suivi des 10 étapes & Audit clinique</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button id="install-app" type="button" class="bg-teal-700 hover:bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center justify-center" aria-label="Installer l'application">Installer</button>
+                <button onclick="exportBackup()" title="Sauvegarde JSON" class="bg-teal-700 hover:bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center"><i class="fa-solid fa-download mr-1.5"></i><span class="hidden sm:inline">Sauvegarde</span></button>
+                <button onclick="$('backup-input').click()" title="Restaurer" class="bg-teal-700 hover:bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center"><i class="fa-solid fa-upload mr-1.5"></i><span class="hidden sm:inline">Restaurer</span></button>
+                <input type="file" id="backup-input" accept=".json" class="hidden" onchange="importBackup(event)">
+                <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium flex items-center shadow-sm transition">
+                    <i class="fa-solid fa-file-excel mr-1.5"></i>
+                    <span class="hidden sm:inline">Exporter</span> Excel
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+
+        <!-- Tabs Navigation -->
+        <div class="flex border-b border-slate-300 space-x-4">
+            <button id="tab-btn-form" onclick="switchTab('form')" class="py-2 px-4 border-b-2 border-teal-700 text-teal-900 font-semibold text-sm flex items-center space-x-2">
+                <i class="fa-solid fa-square-plus"></i>
+                <span>Nouveau Dossier</span>
+            </button>
+            <button id="tab-btn-list" onclick="switchTab('list')" class="py-2 px-4 border-b-2 border-transparent text-slate-600 hover:text-teal-800 font-medium text-sm flex items-center space-x-2">
+                <i class="fa-solid fa-list-check"></i>
+                <span>Registres Enregistrés</span>
+                <span id="record-count-badge" class="bg-slate-200 text-slate-700 text-xs px-2 py-0.5 rounded-full ml-1">0</span>
+            </button>
+        </div>
+
+        <!-- SECTION FORMULAIRE -->
+        <div id="section-form" class="space-y-6">
+            <form id="deces-form" onsubmit="handleFormSubmit(event)" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 space-y-6">
+                
+                <div class="flex justify-between items-center border-b pb-3">
+                    <h2 class="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                        <i class="fa-solid fa-clipboard-list text-teal-700"></i>
+                        <span>Saisie des 10 Étapes Méthodologiques</span>
+                    </h2>
+                    <span id="storage-status" class="text-xs text-slate-500">Sauvegarde sur cet appareil ; pas de synchronisation</span>
+                </div>
+
+                <input type="hidden" id="record-id">
+                <div id="edit-banner" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded-lg px-3 py-2 flex justify-between items-center">
+                    <span>Modification du dossier <b id="edit-code"></b></span>
+                    <button type="button" onclick="resetForm()" class="underline font-medium">Annuler la modification</button>
+                </div>
+
+                <!-- GRILLE DE FORMULAIRE DES 10 ETAPES -->
+                <div class="grid grid-cols-1 gap-6">
+
+                    <!-- ETAPE 1 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">1</span>
+                            <h3>Étape 1 : Recenser</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Numéro de code (Jamais de nom) *</label>
+                                <input type="text" id="etape1_code" required placeholder="ex: DEC-2026-001" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Service *</label>
+                                <select id="etape1_service" required class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Pédiatrie">Pédiatrie</option>
+                                    <option value="Urgences médico-chirurgicales">Urgences médico-chirurgicales</option>
+                                    <option value="Chirurgie">Chirurgie</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 2 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">2</span>
+                            <h3>Étape 2 : Fiche de décès</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Fiche présente & complète ?</label>
+                                <select id="etape2_statut" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Oui">Oui - Présente et complète</option>
+                                    <option value="Non - Signalé point focal">Non - Signalé au point focal</option>
+                                    <option value="Non - Signalé major">Non - Signalé au major</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Délai convenu de signalement</label>
+                                <input type="text" id="etape2_delai" placeholder="ex: 24h, Respecté..." class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 3 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">3</span>
+                            <h3>Étape 3 : Décès &lt; 48h</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Survenu moins de 48h après l'arrivée ?</label>
+                                <select id="etape3_moins48h" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Oui">Oui (&lt; 48h)</option>
+                                    <option value="Non">Non (&gt;= 48h)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Grille abrégée remplie par le binôme ?</label>
+                                <select id="etape3_grille" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Oui">Oui</option>
+                                    <option value="Non">Non</option>
+                                    <option value="Non Applicable">Non Applicable</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 4 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">4</span>
+                            <h3>Étape 4 : Revue interne</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Revu en staff ou revue interne ?</label>
+                                <select id="etape4_revue" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Revu en staff">Revu en staff</option>
+                                    <option value="Revu en revue interne">Revu en revue interne</option>
+                                    <option value="Non revu">Non revu</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Date & Résumé compte-rendu</label>
+                                <input type="text" id="etape4_compte_rendu" placeholder="ex: 12/11/2026 - Conforme" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 5 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold"><span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">5</span><h3>Étape 5 : Pathologie principale</h3></div>
+                        <div class="relative">
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Pathologie / Problème principal <span class="font-normal text-slate-500">(choisir dans la liste : le code CIM s'affiche tout seul)</span></label>
+                            <input type="text" id="etape5_pathologie" autocomplete="off" placeholder="Tapez : paludisme, sepsis, AVC, B50..." class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 6 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">6</span>
+                            <h3>Étape 6 : Protocole applicable</h3>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Disponibilité du protocole au CHU-P</label>
+                            <select id="etape6_protocole" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                <option value="Oui - Affiché dans le service">Oui - Affiché dans le service</option>
+                                <option value="Oui - Dans le classeur">Oui - Dans le classeur</option>
+                                <option value="Non disponible">Non disponible dans le service</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 7 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2 text-teal-800 font-bold"><span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">7</span><h3>Étape 7 : Application des gestes clés (Repères)</h3></div>
+                            <span class="text-xs text-slate-500">Sous-étapes complétées : <b id="step7-count">0/3</b></span>
+                        </div>
+                        <input type="hidden" id="etape7_gestes">
+                        <div class="bg-white border rounded-lg p-3 space-y-2">
+                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><span id="sub7-1" class="w-5 h-5 rounded-full bg-slate-300 text-white text-[11px] flex items-center justify-center">7.1</span>Choisir la situation clinique</div>
+                            <select id="etape7_situation" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                <option value="urgences">Arrivée aux urgences</option>
+                                <option value="paludisme">Paludisme grave</option>
+                                <option value="sepsis">Sepsis / choc septique</option>
+                                <option value="conscience">Trouble de conscience / convulsions</option>
+                                <option value="hypoxemie">Hypoxémie</option>
+                                <option value="enfant">Enfant : déshydratation sévère, malnutrition aiguë sévère ou fièvre</option>
+                                <option value="avc">AVC</option>
+                                <option value="hospitalise">Patient grave hospitalisé</option>
+                                <option value="autre">Autre situation</option>
+                            </select>
+                            <input type="text" id="etape7_situation_autre" placeholder="Précisez la situation clinique" class="hidden w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                            <p class="text-xs text-slate-500">Repères repris de la feuille fournie à titre d’aide à l’audit, pas de conduite clinique. Vérifier leur conformité au protocole du service avant utilisation. Évaluer les informations connues au moment des faits, sans juger le décès a posteriori.</p>
+                        </div>
+                        <div class="bg-white border rounded-lg p-3 space-y-2">
+                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><span id="sub7-2" class="w-5 h-5 rounded-full bg-slate-300 text-white text-[11px] flex items-center justify-center">7.2</span>Vérifier chaque geste clé</div>
+                            <div id="gestes-list" class="space-y-2"></div>
+                            <div class="flex gap-2">
+                                <input type="text" id="geste-new" placeholder="Ajouter un autre repère à vérifier..." class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                <button type="button" onclick="addGeste($('geste-new').value); $('geste-new').value=''" class="px-3 bg-teal-700 text-white rounded-lg text-sm">Ajouter</button>
+                            </div>
+                            <p class="text-xs text-slate-500">Synthèse automatique : <b id="gestes-synthese">-</b></p>
+                        </div>
+                        <div class="bg-white border rounded-lg p-3 space-y-2">
+                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><span id="sub7-3" class="w-5 h-5 rounded-full bg-slate-300 text-white text-[11px] flex items-center justify-center">7.3</span>Date et heure des gestes réalisés</div>
+                            <div id="gestes-datetime-list" class="space-y-2"></div>
+                            <p class="text-xs text-slate-500">Renseignez la date et l’heure pour chaque geste marqué « Réalisé ».</p>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 8 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">8</span>
+                            <h3>Étape 8 : Classer le protocole</h3>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Statut d'application</label>
+                            <select id="etape8_classement" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                <option value="Appliqué">Appliqué (Protocole respecté)</option>
+                                <option value="Existant mais non appliqué">Existant mais non appliqué (→ Besoin de formation)</option>
+                                <option value="Absent">Absent (→ Protocole manquant dans le service)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- ETAPE 9 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold"><span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">9</span><h3>Étape 9 : Certification &amp; Codage CIM-10</h3></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Chaîne causale valide ?</label>
+                                <select id="etape9_chaine" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Oui">Oui - Chaîne causale exacte</option>
+                                    <option value="Non">Non - Cause incertaine</option>
+                                </select>
+                            </div>
+                            <div class="relative">
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Cause de décès (maladie ou code)</label>
+                                <input type="text" id="etape9_libelle" autocomplete="off" placeholder="Tapez une maladie ou un code..." class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Code CIM-10</label>
+                                <input type="text" id="etape9_cim10" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 font-mono font-bold uppercase bg-teal-50">
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                            <span id="cim-info"></span>
+                        </div>
+                        <p class="text-xs text-slate-500"><a class="underline" href="https://icd.who.int/browse10/2008/fr" target="_blank" rel="noopener">https://icd.who.int/browse10/2008/fr</a></p>
+                    </div>
+
+                    <!-- ETAPE 10 -->
+                    <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                        <div class="flex items-center space-x-2 text-teal-800 font-bold">
+                            <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">10</span>
+                            <h3>Étape 10 : Transmission</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Transmis au secrétariat DSMT/SIM ?</label>
+                                <select id="etape10_transmission" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                                    <option value="Oui">Oui - Fiche transmise</option>
+                                    <option value="En cours">En cours</option>
+                                    <option value="Non">Non transmise</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Date de mise à jour du registre</label>
+                                <input type="date" id="etape10_date" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- ACTIONS DU FORMULAIRE -->
+                <div class="flex justify-end space-x-3 border-t pt-4">
+                    <button type="button" onclick="resetForm()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-sm font-medium hover:bg-slate-100">
+                        Réinitialiser
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-teal-800 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-sm flex items-center space-x-2">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Enregistrer le dossier</span>
+                    </button>
+                </div>
+
+            </form>
+        </div>
+
+        <!-- SECTION LISTE ET REGISTRE -->
+        <div id="section-list" class="hidden space-y-4">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                    <h2 class="text-lg font-bold text-slate-900">Registres de Décès Enregistrés</h2>
+                    <input type="text" id="search-input" oninput="filterRecords()" placeholder="Rechercher par Code, Pathologie, CIM..." class="p-2 border rounded-lg text-sm w-full md:w-64 focus:ring-2 focus:ring-teal-500">
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-700 border-collapse">
+                        <thead class="bg-slate-100 text-slate-900 font-semibold border-b border-slate-200">
+                            <tr>
+                                <th class="p-3"># Code</th>
+                                <th class="p-3">Service</th>
+                                <th class="p-3">Pathologie (Étape 5)</th>
+                                <th class="p-3">Code CIM (Étape 9)</th>
+                                <th class="p-3">Classement (Étape 8)</th>
+                                <th class="p-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="records-table-body" class="divide-y divide-slate-200">
+                            <!-- Rempli dynamiquement -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- NOTIFICATION TOAST -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-slate-900 text-white text-sm px-4 py-3 rounded-xl shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 flex items-center space-x-2 z-50">
+        <i class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-message">Message</span>
+    </div>
+    <dialog id="install-dialog" class="w-[calc(100%-2rem)] max-w-md rounded-xl p-0 shadow-2xl backdrop:bg-slate-900/60">
+        <div class="p-5 space-y-4">
+            <div class="flex items-start justify-between gap-4">
+                <h2 class="text-lg font-bold text-slate-900">Installer le registre</h2>
+                <button id="install-dialog-close" type="button" class="text-slate-500 text-2xl leading-none" aria-label="Fermer">×</button>
+            </div>
+            <p id="install-instructions" class="text-sm text-slate-700"></p>
+            <p class="text-xs text-slate-500">L’installation est disponible lorsque l’application est publiée sur une adresse HTTPS. Les données restent propres à cet appareil.</p>
+            <button id="install-dialog-ok" type="button" class="w-full bg-teal-800 text-white rounded-lg px-4 py-2 font-semibold">Compris</button>
+        </div>
+    </dialog>
+
+    <!-- SCRIPT DE LOGIQUE ET DE STOCKAGE -->
+    <script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = v => (v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const today = () => new Date().toISOString().split('T')[0];
+
+// Liste unique des champs : ajouter un champ ici suffit (saisie, modification, export)
+const LABELS = {
+    etape1_code:'Code Anonyme (#1)', etape1_service:'Service (#1)', etape2_statut:'Fiche présente (#2)', etape2_delai:'Délai signalement (#2)',
+    etape3_moins48h:'Décès < 48h (#3)', etape3_grille:'Grille remplie binôme (#3)', etape4_revue:'Revue Interne (#4)', etape4_compte_rendu:'Compte-rendu date (#4)',
+    etape5_pathologie:'Pathologie principale (#5)', etape6_protocole:'Protocole applicable (#6)', etape7_situation:'Situation clinique (#7)', etape7_situation_autre:'Autre situation clinique (#7)',
+    etape8_classement:'Classement protocole (#8)',
+    etape9_chaine:'Chaîne causale valide (#9)', etape9_libelle:'Cause de décès (#9)', etape9_cim10:'Code CIM-10 (#9)', 
+    etape10_transmission:'Transmission secrétariat (#10)', etape10_date:'Date mise à jour (#10)'
+};
+const FIELDS = Object.keys(LABELS);
+
+let CIM = loadCIM();
+let gestes = [];
+let situation7 = '';
+const REPERES_ETAPE7 = {
+    urgences: [
+        {n: 'Triage tracé : patient grave vu par un médecin sans attente', reference: 'OMS ETAT / BEC'}
+    ],
+    paludisme: [
+        {n: 'Confirmation du paludisme (TDR ou goutte épaisse)', reference: 'OMS / directives nationales'},
+        {n: 'Traitement injectable initié dès le diagnostic', reference: 'OMS / directives nationales'}
+    ],
+    sepsis: [
+        {n: 'Antibiothérapie administrée dans l’heure', reference: 'Surviving Sepsis 2021'},
+        {n: 'Remplissage immédiat si choc', reference: 'Surviving Sepsis 2021'}
+    ],
+    conscience: [
+        {n: 'Glycémie capillaire mesurée immédiatement', reference: 'OMS ETAT / BEC'},
+        {n: 'Resucrage sans délai si hypoglycémie', reference: 'OMS ETAT / BEC'}
+    ],
+    hypoxemie: [
+        {n: 'Oxygène administré selon l’indication et le protocole applicable', reference: 'OMS'}
+    ],
+    enfant: [
+        {n: 'Classification et plan de réhydratation tracés', reference: 'Mémento OMS'},
+        {n: 'Protocole de malnutrition aiguë sévère vérifié : glycémie, température, antibiothérapie', reference: 'Mémento OMS'}
+    ],
+    avc: [
+        {n: 'Glycémie et pression artérielle évaluées', reference: 'Protocole du service'},
+        {n: 'Imagerie réalisée ou décision documentée', reference: 'Protocole du service'},
+        {n: 'Déglutition évaluée', reference: 'Protocole du service'},
+        {n: 'Positionnement conforme au protocole', reference: 'Protocole du service'}
+    ],
+    hospitalise: [
+        {n: 'Paramètres surveillés au moins toutes les 4 h, selon le protocole', reference: 'Grille CHU-P'},
+        {n: 'Senior ou réanimation appelé en cas d’aggravation', reference: 'Grille CHU-P'}
+    ]
+};
+const STATUTS_GESTE = [
+    {value: 'Fait', label: 'Réalisé', cls: 'bg-emerald-600 text-white border-emerald-600'},
+    {value: 'Non fait', label: 'Non réalisé', cls: 'bg-rose-600 text-white border-rose-600'},
+    {value: 'Non documenté', label: 'Non documenté', cls: 'bg-amber-500 text-white border-amber-500'},
+    {value: 'Ressource indisponible', label: 'Ressource indisponible', cls: 'bg-violet-600 text-white border-violet-600'},
+    {value: 'N/A', label: 'Non applicable', cls: 'bg-slate-500 text-white border-slate-500'}
+];
+const SITUATIONS_ETAPE7 = {
+    urgences: 'Arrivée aux urgences',
+    paludisme: 'Paludisme grave',
+    sepsis: 'Sepsis / choc septique',
+    conscience: 'Trouble de conscience / convulsions',
+    hypoxemie: 'Hypoxémie',
+    enfant: 'Enfant : déshydratation sévère, malnutrition aiguë sévère ou fièvre',
+    avc: 'AVC',
+    hospitalise: 'Patient grave hospitalisé',
+    autre: 'Autre situation'
+};
+
+function loadCIM() {
+    if (window.CIM10_DATA && Array.isArray(window.CIM10_DATA.codes) && window.CIM10_DATA.codes.length) {
+        return window.CIM10_DATA.codes;
+    }
+    console.error('La base CIM-10 locale est absente ou invalide.');
+    return [];
+}
+
+function updateCIMInfo() {
+    $('cim-info').textContent = CIM.length
+        ? `Base CIM : ${CIM.length.toLocaleString('fr-FR')} codes`
+        : 'Base CIM indisponible : vérifiez les fichiers de l’application.';
+}
+
+function searchCIM(q) {
+    const t = norm(q).split(/\s+/).filter(Boolean);
+    if (!t.length) return [];
+    return CIM.filter(o => { const h = norm(o.name + ' ' + o.cim10); return t.every(w => h.includes(w)); }).slice(0, 8);
+}
+
+function attachAutocomplete(input, onPick) {
+    const box = document.createElement('div');
+    box.className = 'hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg z-40 max-h-64 overflow-auto';
+    input.parentElement.appendChild(box);
+    const hide = () => box.classList.add('hidden');
+    input.addEventListener('input', () => {
+        const res = searchCIM(input.value);
+        if (!res.length) return hide();
+        box.innerHTML = res.map((o, i) => `<button type="button" data-i="${i}" class="w-full text-left px-3 py-2 hover:bg-teal-50 border-b last:border-0 text-sm flex justify-between gap-3"><span>${esc(o.name)}</span><span class="font-mono text-xs font-bold text-teal-800 whitespace-nowrap">${esc(o.cim10)}</span></button>`).join('');
+        box.classList.remove('hidden');
+        box.querySelectorAll('button').forEach(b => b.onmousedown = e => { e.preventDefault(); onPick(res[b.dataset.i]); hide(); });
+    });
+    input.addEventListener('blur', hide);
+}
+
+function fillCodes(o) {
+    $('etape9_libelle').value = o.name;
+    $('etape9_cim10').value = o.cim10;
+    showToast(`Code CIM-10 : ${o.cim10}`);
+}
+
+// --- ÉTAPE 7 : gestes clés ---
+function changeSituation7(value) {
+    const customName = $('etape7_situation_autre').value.trim();
+    $('etape7_situation_autre').classList.toggle('hidden', value !== 'autre');
+    const previousSituation = situation7;
+    situation7 = value === 'autre' && customName ? `autre:${norm(customName).replace(/\s+/g, ' ')}` : value;
+    if (value === 'autre' && previousSituation.startsWith('autre:') && previousSituation !== situation7) {
+        gestes.forEach(g => { if (g.situation === previousSituation) g.situation = situation7; });
+    }
+    const reperes = REPERES_ETAPE7[value] || [];
+    reperes.forEach(rep => {
+        if (!gestes.some(g => g.situation === value && norm(g.n) === norm(rep.n))) {
+            gestes.push({n: rep.n, s: '', situation: value, reference: rep.reference});
+        }
+    });
+    syncGestes();
+}
+
+function addGeste(name) {
+    name = (name || '').trim();
+    if (!name) return;
+    if (!situation7) return showToast('Choisissez d’abord une situation clinique.');
+    if (situation7 === 'autre') return showToast('Précisez la situation clinique avant d’ajouter un repère.');
+    if (gestes.some(g => g.situation === situation7 && norm(g.n) === norm(name))) return;
+    gestes.push({n: name, s: '', situation: situation7, reference: 'Ajouté par l’évaluateur'});
+    syncGestes();
+}
+function setGeste(i, s) { gestes[i].s = gestes[i].s === s ? '' : s; syncGestes(); }
+function setGesteDateHeure(i, value) {
+    gestes[i].dateHeure = value;
+    updateStep7Progress();
+}
+function delGeste(i) { gestes.splice(i, 1); syncGestes(); }
+
+function syncGestes() {
+    const visibles = gestes.filter(g => g.situation === situation7);
+    const counts = STATUTS_GESTE.filter(st => visibles.some(g => g.s === st.value))
+        .map(st => `${st.label} : ${visibles.filter(g => g.s === st.value).length}`);
+    $('etape7_gestes').value = counts.join(' ; ');
+    renderGestes();
+}
+
+function renderGestes() {
+    const visibles = gestes.map((g, i) => ({...g, index: i})).filter(g => g.situation === situation7);
+    $('gestes-list').innerHTML = !situation7
+        ? '<p class="text-sm text-slate-500">Choisissez une situation clinique pour afficher les repères à vérifier.</p>'
+        : visibles.map(g => `<div class="border rounded-lg p-2 space-y-2"><div class="flex items-start justify-between gap-2"><div class="flex-1 text-sm font-medium">${esc(g.n)}<div class="text-xs text-slate-500 font-normal">Référence indiquée : ${esc(g.reference || 'Repère antérieur / non précisé')}</div></div><button type="button" onclick="delGeste(${g.index})" class="text-rose-500 px-1" title="Retirer ce repère">✕</button></div><div class="flex flex-wrap gap-1.5">${STATUTS_GESTE.map(st => `<button type="button" onclick="setGeste(${g.index},'${st.value}')" aria-pressed="${g.s === st.value}" class="px-2 py-1 rounded text-xs border ${g.s === st.value ? st.cls : 'bg-white text-slate-600'}">${st.label}</button>`).join('')}</div></div>`).join('')
+        || '<p class="text-sm text-slate-500">Aucun repère prédéfini pour cette situation. Ajoutez les repères du protocole applicable.</p>';
+    const faits = visibles.filter(g => g.s === 'Fait');
+    $('gestes-datetime-list').innerHTML = faits.length
+        ? faits.map(g => `<label class="block text-xs font-medium text-slate-700">${esc(g.n)}<input type="datetime-local" value="${esc(g.dateHeure || '')}" onchange="setGesteDateHeure(${g.index}, this.value)" class="mt-1 w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500"></label>`).join('')
+        : '<p class="text-sm text-slate-500">Marquez un geste comme « Réalisé » pour saisir sa date et son heure.</p>';
+    $('gestes-synthese').textContent = $('etape7_gestes').value || '-';
+    updateStep7Progress();
+}
+
+function updateStep7Progress() {
+    const visibles = gestes.filter(g => g.situation === situation7);
+    const faits = visibles.filter(g => g.s === 'Fait');
+    const ok = [
+        Boolean(situation7),
+        visibles.length > 0 && visibles.every(g => g.s),
+        faits.length ? faits.every(g => Boolean(g.dateHeure)) : visibles.length > 0 && visibles.every(g => g.s)
+    ];
+    ok.forEach((v, i) => $('sub7-' + (i + 1)).className = `w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center ${v ? 'bg-emerald-600' : 'bg-slate-300'}`);
+    $('step7-count').textContent = ok.filter(Boolean).length + '/3';
+}
+
+// --- STOCKAGE LOCAL AUTOMATIQUE ---
+let recordsCache = [];
+let recordsDBPromise;
+
+function openRecordsDB() {
+    if (!('indexedDB' in window)) return Promise.reject(new Error('IndexedDB indisponible dans ce navigateur.'));
+    if (!recordsDBPromise) {
+        recordsDBPromise = new Promise((resolve, reject) => {
+            const request = indexedDB.open('chup-deces-registre', 2);
+            request.onupgradeneeded = () => {
+                if (!request.result.objectStoreNames.contains('records')) {
+                    request.result.createObjectStore('records', {keyPath: 'id'});
+                }
+                if (!request.result.objectStoreNames.contains('meta')) {
+                    request.result.createObjectStore('meta', {keyPath: 'key'});
+                }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error || new Error("Impossible d'ouvrir la base locale."));
+        });
+    }
+    return recordsDBPromise;
+}
+
+async function readAllRecords() {
+    const db = await openRecordsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('records', 'readonly');
+        const request = tx.objectStore('records').getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('Impossible de lire les dossiers enregistrés.'));
+        tx.onabort = () => reject(tx.error || new Error('Lecture des dossiers interrompue.'));
+    });
+}
+
+async function writeAllRecords(records, legacyMigrationDone = false) {
+    const db = await openRecordsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(legacyMigrationDone ? ['records', 'meta'] : ['records'], 'readwrite');
+        const store = tx.objectStore('records');
+        store.clear();
+        records.forEach(record => store.put(record));
+        if (legacyMigrationDone) tx.objectStore('meta').put({key: 'legacy-localstorage-migration-v1', value: true});
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error("Échec de l'enregistrement local."));
+        tx.onabort = () => reject(tx.error || new Error("Enregistrement local interrompu."));
+    });
+}
+
+async function initializeRecords() {
+    let records = await readAllRecords();
+    const db = await openRecordsDB();
+    const migrationDone = await new Promise((resolve, reject) => {
+        const tx = db.transaction('meta', 'readonly');
+        const request = tx.objectStore('meta').get('legacy-localstorage-migration-v1');
+        request.onsuccess = () => resolve(Boolean(request.result && request.result.value));
+        request.onerror = () => reject(request.error || new Error('Impossible de vérifier la migration des anciennes données.'));
+    });
+    if (!migrationDone) {
+        const legacy = localStorage.getItem('chup_deces_records');
+        if (legacy) {
+            let previousRecords;
+            try { previousRecords = JSON.parse(legacy); }
+            catch (error) { throw new Error("Les anciennes données locales sont illisibles; elles n'ont pas été supprimées."); }
+            if (!Array.isArray(previousRecords)) throw new Error("Les anciennes données locales ont un format invalide; elles n'ont pas été supprimées.");
+            const merged = new Map(previousRecords.map(record => [record.id, record]));
+            records.forEach(record => merged.set(record.id, record));
+            records = [...merged.values()];
+        }
+        await writeAllRecords(records, true);
+    }
+    recordsCache = records;
+    $('storage-status').textContent = 'Sauvegarde auto sur cet appareil ; pas de synchronisation';
+    updateBadge();
+    renderTable();
+}
+
+function getRecords() { return recordsCache; }
+
+async function saveRecords(records) {
+    try {
+        await writeAllRecords(records);
+        recordsCache = records;
+        updateBadge();
+        renderTable();
+        $('storage-status').textContent = 'Sauvegarde auto sur cet appareil ; pas de synchronisation';
+        return true;
+    } catch (error) {
+        console.error('Échec de la sauvegarde automatique locale.', error);
+        $('storage-status').textContent = 'Échec de la sauvegarde locale';
+        showToast("Échec de l'enregistrement local. Vérifiez l'espace disponible sur l'appareil.");
+        return false;
+    }
+}
+
+// Anciens dossiers : "[CIM10: B50.0 | CIM11: 1F40.0] - nom" -> champs séparés
+function migrate(r) {
+    r = {...r};
+    if (/CIM10:/.test(r.etape9_cim10 || '')) {
+        const old = r.etape9_cim10;
+        r.etape9_cim10 = (/CIM10:\s*([A-Z0-9.]+)/.exec(old) || [])[1] || '';
+        r.etape9_libelle = r.etape9_libelle || (old.split('] - ')[1] || '');
+    }
+    return r;
+}
+
+// --- NAVIGATION ---
+function switchTab(tab) {
+    const on = "py-2 px-4 border-b-2 border-teal-700 text-teal-900 font-semibold text-sm flex items-center space-x-2";
+    const off = "py-2 px-4 border-b-2 border-transparent text-slate-600 hover:text-teal-800 font-medium text-sm flex items-center space-x-2";
+    $('section-form').classList.toggle('hidden', tab !== 'form');
+    $('section-list').classList.toggle('hidden', tab === 'form');
+    $('tab-btn-form').className = tab === 'form' ? on : off;
+    $('tab-btn-list').className = tab === 'form' ? off : on;
+}
+
+// --- FORMULAIRE ---
+function getFormData() {
+    const r = {id: $('record-id').value || Date.now().toString()};
+    FIELDS.forEach(f => r[f] = $(f).value.trim());
+    r.etape10_date = r.etape10_date || today();
+    r.etape7_gestes = $('etape7_gestes').value;
+    r.etape7_liste = gestes;
+    return r;
+}
+
+function setFormData(r) {
+    r = migrate(r);
+    FIELDS.forEach(f => $(f).value = r[f] ?? '');
+    $('etape7_gestes').value = r.etape7_gestes || '';
+    gestes = (r.etape7_liste || []).map(g => ({...g, situation: g.situation || r.etape7_situation || 'autre'}));
+    const selectedSituation = r.etape7_situation || (gestes.length ? 'autre' : '');
+    $('etape7_situation').value = selectedSituation;
+    situation7 = selectedSituation === 'autre' && r.etape7_situation_autre
+        ? `autre:${norm(r.etape7_situation_autre).replace(/\s+/g, ' ')}`
+        : selectedSituation;
+    $('etape7_situation_autre').classList.toggle('hidden', selectedSituation !== 'autre');
+    if (selectedSituation && !gestes.length) changeSituation7(selectedSituation);
+    else syncGestes();
+}
+
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    const recordId = $('record-id').value;
+    const record = getFormData();
+    let records = getRecords();
+
+    if (records.some(r => r.id !== recordId && (r.etape1_code || '').trim().toLowerCase() === record.etape1_code.toLowerCase())) {
+        showToast(`Le code ${record.etape1_code} existe déjà.`);
+        $('etape1_code').focus();
+        return;
+    }
+    const missing = [...new Set([...document.querySelectorAll('#deces-form select')].filter(sel => sel.value === '').map(sel => sel.id.match(/etape(\d+)/)[1]))];
+    if (missing.length && !confirm(`Étape(s) non renseignée(s) : ${missing.join(', ')}.\nEnregistrer quand même ?`)) return;
+
+    records = recordId ? records.map(r => r.id === recordId ? record : r) : [...records, record];
+    if (!await saveRecords(records)) return;
+    showToast(recordId ? 'Dossier mis à jour !' : 'Nouveau dossier enregistré !');
+    resetForm();
+    switchTab('list');
+}
+
+function resetForm() {
+    $('deces-form').reset();
+    $('record-id').value = '';
+    $('etape10_date').value = today();
+    $('edit-banner').classList.add('hidden');
+    gestes = [];
+    situation7 = '';
+    $('etape7_situation_autre').classList.add('hidden');
+    renderGestes();
+}
+
+function editRecord(id) {
+    const r = getRecords().find(item => item.id === id);
+    if (!r) return;
+    resetForm();
+    setFormData(r);
+    $('record-id').value = r.id;
+    $('edit-code').textContent = r.etape1_code;
+    $('edit-banner').classList.remove('hidden');
+    switchTab('form');
+    window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+async function deleteRecord(id) {
+    if (!confirm('Supprimer ce dossier ? (pensez à la sauvegarde JSON)')) return;
+    if (await saveRecords(getRecords().filter(r => r.id !== id))) showToast('Dossier supprimé.');
+}
+
+// --- LISTE ---
+function renderTable(filtered = null) {
+    const records = (filtered || getRecords()).slice().reverse().map(migrate);
+    if (!records.length) {
+        $('records-table-body').innerHTML = '<tr><td colspan="6" class="text-center p-6 text-slate-400">Aucun dossier enregistré pour le moment.</td></tr>';
+        return;
+    }
+    $('records-table-body').innerHTML = records.map(r => {
+        const c = r.etape8_classement === 'Appliqué' ? 'bg-emerald-100 text-emerald-800' : r.etape8_classement === 'Absent' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800';
+        return `<tr class="hover:bg-slate-50 border-b border-slate-100">
+            <td class="p-3 font-mono font-bold text-teal-900">${esc(r.etape1_code)}</td>
+            <td class="p-3">${esc(r.etape1_service) || '-'}</td>
+            <td class="p-3 font-medium">${esc(r.etape5_pathologie) || '-'}</td>
+            <td class="p-3 font-mono text-xs">${esc(r.etape9_cim10) || '-'}</td>
+            <td class="p-3"><span class="px-2 py-1 text-xs rounded-full ${c}">${esc(r.etape8_classement) || '-'}</span></td>
+            <td class="p-3 text-right space-x-2">
+                <button onclick="editRecord('${esc(r.id)}')" class="text-teal-700 hover:text-teal-900"><i class="fa-solid fa-pen-to-square"></i></button>
+                <button onclick="deleteRecord('${esc(r.id)}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
+            </td></tr>`;
+    }).join('');
+}
+
+function filterRecords() {
+    const q = norm($('search-input').value);
+    renderTable(getRecords().filter(r => norm(Object.values(migrate(r)).filter(v => typeof v === 'string').join(' ')).includes(q)));
+}
+
+function updateBadge() { $('record-count-badge').textContent = getRecords().length; }
+
+// --- EXPORTS / SAUVEGARDE ---
+function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+
+function exportToExcel() {
+    const records = getRecords();
+    if (!records.length) return showToast('Aucune donnée à exporter.');
+    const rows = records.map(r => {
+        r = migrate(r);
+        const o = {};
+        FIELDS.forEach(f => o[LABELS[f]] = r[f] ?? '');
+        o['Gestes clés synthèse (#7)'] = r.etape7_gestes || '';
+        o['Gestes clés détail (#7)'] = (r.etape7_liste || []).map(g => {
+            const situation = g.situation && g.situation.startsWith('autre:')
+                ? (r.etape7_situation_autre || g.situation.slice(6))
+                : (SITUATIONS_ETAPE7[g.situation] || r.etape7_situation_autre || 'non précisée');
+            return `[${situation}] ${g.n} — ${g.s || 'À évaluer'}${g.dateHeure ? ` — ${g.dateHeure.replace('T', ' ')}` : ''} (${g.reference || 'référence non précisée'})`;
+        }).join(' ; ');
+        return o;
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Registre_Deces');
+    XLSX.writeFile(wb, `Registre_Deces_CHUP_${today()}.xlsx`);
+}
+
+function exportBackup() {
+    if (!getRecords().length) return showToast('Aucune donnée à sauvegarder.');
+    download(new Blob([JSON.stringify(getRecords(), null, 1)], {type: 'application/json'}), `Sauvegarde_Deces_${today()}.json`);
+}
+
+function importBackup(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async e => {
+        let incoming;
+        try {
+            incoming = JSON.parse(e.target.result);
+            if (!Array.isArray(incoming) || incoming.some(r => !r.id || !r.etape1_code)) throw new Error();
+        } catch (error) {
+            showToast('Fichier de sauvegarde invalide.');
+            event.target.value = '';
+            return;
+        }
+        const map = new Map(getRecords().map(r => [r.id, r]));
+        incoming.forEach(r => map.set(r.id, r));
+        if (await saveRecords([...map.values()])) showToast(`${incoming.length} dossier(s) restauré(s).`);
+        event.target.value = '';
+    };
+    reader.readAsText(file);
+}
+
+let toastTimer;
+let deferredInstallPrompt = null;
+function showToast(message) {
+    $('toast-message').textContent = message;
+    $('toast').classList.remove('translate-y-20', 'opacity-0');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $('toast').classList.add('translate-y-20', 'opacity-0'), 3500);
+}
+
+function isIOSDevice() {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isAppInstalled() {
+    return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+function showInstallInstructions() {
+    const dialog = $('install-dialog');
+    const message = isIOSDevice()
+        ? 'Sur iPhone ou iPad, ouvrez ce lien dans Safari, touchez le bouton Partager, puis « Sur l’écran d’accueil » et « Ajouter ».'
+        : /Android/i.test(navigator.userAgent)
+            ? 'Dans Chrome sur Android, ouvrez le menu ⋮ puis touchez « Installer l’application » ou « Ajouter à l’écran d’accueil ».'
+            : 'Ouvrez le menu de votre navigateur et choisissez « Installer l’application » ou « Ajouter à l’écran d’accueil ».';
+    $('install-instructions').textContent = message;
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+}
+
+window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+});
+
+// --- INITIALISATION ---
+window.onload = async function () {
+    // Plus de réponse "favorable" par défaut : chaque liste démarre sur "— Choisir —"
+    document.querySelectorAll('#deces-form select').forEach(sel => sel.prepend(new Option('— Choisir —', '', true, true)));
+
+    attachAutocomplete($('etape5_pathologie'), o => { $('etape5_pathologie').value = o.name; fillCodes(o); });
+    attachAutocomplete($('etape9_libelle'), fillCodes);
+    $('etape9_cim10').addEventListener('change', e => {
+        const o = CIM.find(x => norm(x.cim10) === norm(e.target.value.trim()));
+        if (o && !$('etape9_libelle').value) fillCodes(o);
+    });
+    $('etape3_moins48h').addEventListener('change', e => { if (e.target.value === 'Non') $('etape3_grille').value = 'Non Applicable'; });
+    $('geste-new').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addGeste($('geste-new').value); $('geste-new').value = ''; } });
+    $('etape7_situation').addEventListener('change', e => changeSituation7(e.target.value));
+    $('etape7_situation_autre').addEventListener('change', () => changeSituation7('autre'));
+    $('etape7_situation_autre').addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            $('etape7_situation_autre').blur();
+        }
+    });
+    resetForm();
+    updateCIMInfo();
+    try { await initializeRecords(); }
+    catch (error) {
+        console.error("Impossible d'initialiser le stockage local.", error);
+        $('storage-status').textContent = 'Erreur du stockage local';
+        showToast(error.message || "Impossible d'ouvrir le stockage local.");
+    }
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(error => {
+            console.error("Impossible d'installer le cache hors connexion.", error);
+            showToast("L'application fonctionne, mais le mode hors connexion n'a pas pu être activé.");
+        });
+    }
+    if (isAppInstalled()) $('install-app').classList.add('hidden');
+    $('install-app').addEventListener('click', async () => {
+        if (!deferredInstallPrompt) {
+            showInstallInstructions();
+            return;
+        }
+        const promptEvent = deferredInstallPrompt;
+        deferredInstallPrompt = null;
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice.outcome === 'accepted') $('install-app').classList.add('hidden');
+    });
+    const closeInstallDialog = () => $('install-dialog').close ? $('install-dialog').close() : $('install-dialog').removeAttribute('open');
+    $('install-dialog-close').addEventListener('click', closeInstallDialog);
+    $('install-dialog-ok').addEventListener('click', closeInstallDialog);
+    $('install-dialog').addEventListener('click', event => {
+        if (event.target === $('install-dialog')) closeInstallDialog();
+    });
+    window.addEventListener('appinstalled', () => {
+        $('install-app').classList.add('hidden');
+        showToast('Application installée.');
+    });
+};
+
+    </script>
+</body>
+</html>
