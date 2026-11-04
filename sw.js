@@ -1,4 +1,4 @@
-const CACHE_NAME = 'registre-chup-pwa-v4';
+const CACHE_NAME = 'registre-chup-pwa-v5';
 const APP_ASSETS = [
     './',
     './index.html',

@@ -157,20 +157,12 @@
                             <span class="w-6 h-6 rounded-full bg-teal-800 text-white flex items-center justify-center text-xs">3</span>
                             <h3>Étape 3 : Décès &lt; 48h</h3>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 gap-4">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 mb-1">Survenu moins de 48h après l'arrivée ?</label>
                                 <select id="etape3_moins48h" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
                                     <option value="Oui">Oui (&lt; 48h)</option>
                                     <option value="Non">Non (&gt;= 48h)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-700 mb-1">Grille abrégée remplie par le binôme ?</label>
-                                <select id="etape3_grille" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
-                                    <option value="Oui">Oui</option>
-                                    <option value="Non">Non</option>
-                                    <option value="Non Applicable">Non Applicable</option>
                                 </select>
                             </div>
                         </div>
@@ -216,8 +208,7 @@
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 mb-1">Disponibilité du protocole au CHU-P</label>
                             <select id="etape6_protocole" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500">
-                                <option value="Oui - Affiché dans le service">Oui - Affiché dans le service</option>
-                                <option value="Oui - Dans le classeur">Oui - Dans le classeur</option>
+                                <option value="Oui ">Oui </option>
                                 <option value="Non disponible">Non disponible dans le service</option>
                             </select>
                         </div>
@@ -256,9 +247,9 @@
                             <p class="text-xs text-slate-500">Synthèse automatique : <b id="gestes-synthese">-</b></p>
                         </div>
                         <div class="bg-white border rounded-lg p-3 space-y-2">
-                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><span id="sub7-3" class="w-5 h-5 rounded-full bg-slate-300 text-white text-[11px] flex items-center justify-center">7.3</span>Date et heure des gestes réalisés</div>
+                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><span id="sub7-3" class="w-5 h-5 rounded-full bg-slate-300 text-white text-[11px] flex items-center justify-center">7.3</span>Date et/ou heure des gestes réalisés</div>
                             <div id="gestes-datetime-list" class="space-y-2"></div>
-                            <p class="text-xs text-slate-500">Renseignez la date et l’heure pour chaque geste marqué « Réalisé ».</p>
+                            <p class="text-xs text-slate-500">La date et l’heure sont facultatives et peuvent être renseignées séparément pour chaque geste marqué « Réalisé ».</p>
                         </div>
                     </div>
 
@@ -399,7 +390,7 @@ const today = () => new Date().toISOString().split('T')[0];
 // Liste unique des champs : ajouter un champ ici suffit (saisie, modification, export)
 const LABELS = {
     etape1_code:'Code Anonyme (#1)', etape1_service:'Service (#1)', etape2_statut:'Fiche présente (#2)', etape2_delai:'Délai signalement (#2)',
-    etape3_moins48h:'Décès < 48h (#3)', etape3_grille:'Grille remplie binôme (#3)', etape4_revue:'Revue Interne (#4)', etape4_compte_rendu:'Compte-rendu date (#4)',
+    etape3_moins48h:'Décès < 48h (#3)', etape4_revue:'Revue Interne (#4)', etape4_compte_rendu:'Compte-rendu date (#4)',
     etape5_pathologie:'Pathologie principale (#5)', etape6_protocole:'Protocole applicable (#6)', etape7_situation:'Situation clinique (#7)', etape7_situation_autre:'Autre situation clinique (#7)',
     etape8_classement:'Classement protocole (#8)',
     etape9_chaine:'Chaîne causale valide (#9)', etape9_libelle:'Cause de décès (#9)', etape9_cim10:'Code CIM-10 (#9)', 
@@ -532,8 +523,8 @@ function addGeste(name) {
     syncGestes();
 }
 function setGeste(i, s) { gestes[i].s = gestes[i].s === s ? '' : s; syncGestes(); }
-function setGesteDateHeure(i, value) {
-    gestes[i].dateHeure = value;
+function setGesteDateTime(i, field, value) {
+    gestes[i][field] = value;
     updateStep7Progress();
 }
 function delGeste(i) { gestes.splice(i, 1); syncGestes(); }
@@ -554,8 +545,8 @@ function renderGestes() {
         || '<p class="text-sm text-slate-500">Aucun repère prédéfini pour cette situation. Ajoutez les repères du protocole applicable.</p>';
     const faits = visibles.filter(g => g.s === 'Fait');
     $('gestes-datetime-list').innerHTML = faits.length
-        ? faits.map(g => `<label class="block text-xs font-medium text-slate-700">${esc(g.n)}<input type="datetime-local" value="${esc(g.dateHeure || '')}" onchange="setGesteDateHeure(${g.index}, this.value)" class="mt-1 w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500"></label>`).join('')
-        : '<p class="text-sm text-slate-500">Marquez un geste comme « Réalisé » pour saisir sa date et son heure.</p>';
+        ? faits.map(g => `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2"><label class="block text-xs font-medium text-slate-700">${esc(g.n)} — Date<input type="date" value="${esc(g.date || '')}" onchange="setGesteDateTime(${g.index}, 'date', this.value)" class="mt-1 w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500"></label><label class="block text-xs font-medium text-slate-700">Heure<input type="time" value="${esc(g.heure || '')}" onchange="setGesteDateTime(${g.index}, 'heure', this.value)" class="mt-1 w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500"></label></div>`).join('')
+        : '<p class="text-sm text-slate-500">Marquez un geste comme « Réalisé » pour renseigner éventuellement sa date ou son heure.</p>';
     $('gestes-synthese').textContent = $('etape7_gestes').value || '-';
     updateStep7Progress();
 }
@@ -566,7 +557,7 @@ function updateStep7Progress() {
     const ok = [
         Boolean(situation7),
         visibles.length > 0 && visibles.every(g => g.s),
-        faits.length ? faits.every(g => Boolean(g.dateHeure)) : visibles.length > 0 && visibles.every(g => g.s)
+        faits.length ? faits.every(g => Boolean(g.date || g.heure)) : visibles.length > 0 && visibles.every(g => g.s)
     ];
     ok.forEach((v, i) => $('sub7-' + (i + 1)).className = `w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center ${v ? 'bg-emerald-600' : 'bg-slate-300'}`);
     $('step7-count').textContent = ok.filter(Boolean).length + '/3';
@@ -674,6 +665,17 @@ function migrate(r) {
         const old = r.etape9_cim10;
         r.etape9_cim10 = (/CIM10:\s*([A-Z0-9.]+)/.exec(old) || [])[1] || '';
         r.etape9_libelle = r.etape9_libelle || (old.split('] - ')[1] || '');
+    }
+    if (Array.isArray(r.etape7_liste)) {
+        r.etape7_liste = r.etape7_liste.map(g => {
+            const {dateHeure, ...rest} = g;
+            const [legacyDate = '', legacyHeure = ''] = (dateHeure || '').split('T');
+            return {
+                ...rest,
+                date: g.date || legacyDate,
+                heure: g.heure || legacyHeure
+            };
+        });
     }
     return r;
 }
@@ -806,7 +808,8 @@ function exportToExcel() {
             const situation = g.situation && g.situation.startsWith('autre:')
                 ? (r.etape7_situation_autre || g.situation.slice(6))
                 : (SITUATIONS_ETAPE7[g.situation] || r.etape7_situation_autre || 'non précisée');
-            return `[${situation}] ${g.n} — ${g.s || 'À évaluer'}${g.dateHeure ? ` — ${g.dateHeure.replace('T', ' ')}` : ''} (${g.reference || 'référence non précisée'})`;
+            const dateHeure = [g.date ? `Date : ${g.date}` : '', g.heure ? `Heure : ${g.heure}` : ''].filter(Boolean).join(' ; ');
+            return `[${situation}] ${g.n} — ${g.s || 'À évaluer'}${dateHeure ? ` — ${dateHeure}` : ''} (${g.reference || 'référence non précisée'})`;
         }).join(' ; ');
         return o;
     });
@@ -888,7 +891,6 @@ window.onload = async function () {
         const o = CIM.find(x => norm(x.cim10) === norm(e.target.value.trim()));
         if (o && !$('etape9_libelle').value) fillCodes(o);
     });
-    $('etape3_moins48h').addEventListener('change', e => { if (e.target.value === 'Non') $('etape3_grille').value = 'Non Applicable'; });
     $('geste-new').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addGeste($('geste-new').value); $('geste-new').value = ''; } });
     $('etape7_situation').addEventListener('change', e => changeSituation7(e.target.value));
     $('etape7_situation_autre').addEventListener('change', () => changeSituation7('autre'));
